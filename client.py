@@ -20,7 +20,7 @@ class MCPClient:
         self.session: Optional[ClientSession] = None
         self.exit_stack = AsyncExitStack()
         self.llm = ChatOllama(
-            model="deepseek-r1:14b",
+            model="MFDoom/deepseek-r1-tool-calling:14b",  # Using available model
             num_ctx=32000,
             base_url="http://localhost:11434",  # Explicitly set Ollama URL
             temperature=0,  # Reduce randomness for more consistent outputs
