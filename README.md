@@ -1,6 +1,3 @@
-C:\Users\administrator\AppData\Local\anaconda3\python.exe client.py server.py
-
-
 # Browser Use MCP
 
 A powerful browser automation and control system that enables AI agents to interact with web browsers through the Model Context Protocol (MCP). This implementation is specifically designed to work with Ollama local models, providing a secure and efficient way to automate browser interactions using locally-hosted AI models.
