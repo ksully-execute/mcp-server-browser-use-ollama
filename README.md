@@ -29,7 +29,7 @@ cd browser-use-mcp
 pip install -r requirements.txt
 
 # Configure Ollama (ensure Ollama is running)
-ollama pull codellama # or your preferred model
+ollama pull qwen2.5-coder:7b # or your preferred model
 ```
 
 ## Quick Start
@@ -81,10 +81,10 @@ To use browser-use-mcp with Claude Desktop:
 {
   "mcpServers": {
     "browser-use": {
-      "command": "python",
-      "args": ["-m", "browser_use.mcp_server"],
-      "disabled": false,
-      "alwaysAllow": []
+      "command": "/path/to/.venv/bin/python",
+      "args": [
+        "/path/to/server.py"
+      ]
     }
   }
 }
