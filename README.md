@@ -40,7 +40,7 @@ from browser_use.browser import Browser
 from browser_use.mcp import MCPServer
 
 # Initialize MCP server and Ollama model
-mcp_server = MCPServer(model="codellama")
+mcp_server = MCPServer(model="qwen2.5-coder:7b")
 
 # Initialize browser and agent
 browser = Browser()
