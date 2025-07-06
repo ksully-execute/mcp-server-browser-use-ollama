@@ -11,6 +11,7 @@ A powerful browser automation system that enables AI agents to control web brows
 - **Screenshot Capabilities**: Visual feedback and debugging support
 - **Session Management**: Multiple browser sessions with automatic cleanup
 - **Interactive Mode**: Continuous feedback loop between AI and browser state
+- **Optimized Display**: Browser launches maximized (1920x1080) to minimize scrolling
 
 ## Quick Start
 

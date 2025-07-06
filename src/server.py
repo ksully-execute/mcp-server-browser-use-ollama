@@ -351,12 +351,17 @@ async def launch_browser_impl(url: str) -> str:
         playwright = await async_playwright().start()
         browser = await playwright.chromium.launch(
             headless=False,
-            args=['--no-sandbox', '--disable-dev-shm-usage']  # Security hardening
+            args=['--no-sandbox', '--disable-dev-shm-usage', '--start-maximized']  # Security hardening + maximized
         )
         context = await browser.new_context(
-            viewport={'width': 900, 'height': 600}
+            no_viewport=True  # Use full browser window instead of fixed viewport
         )
         page = await context.new_page()
+        
+        # Set viewport to full screen dimensions (common full HD resolution)
+        # This prevents scrollbars and improves AI automation efficiency
+        await page.set_viewport_size({"width": 1920, "height": 1080})
+        
         await page.goto(url)
         
         session = BrowserSession(session_id, playwright, browser, context, page)
