@@ -9,7 +9,7 @@ packages = ["src"]
 name = "mcp-server-browser-use-ollama"
 version = "0.1.0"
 description = "Browser automation and control system built on the Model Context Protocol (MCP)"
-readme = "docs/README.md"
+readme = "README.md"
 requires-python = ">=3.8"
 license = {text = "MIT"}
 authors = [
@@ -28,11 +28,10 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-    "fastmcp>=0.4.0",
+    "mcp>=1.0.0",
     "playwright>=1.41.0",
     "langchain-ollama>=0.3.0",
     "langchain-core>=0.3.0",
-    "mcp>=1.0.0",
 ]
 
 [project.urls]

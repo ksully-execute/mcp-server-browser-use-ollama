@@ -31,9 +31,6 @@ cd mcp-server-browser-use-ollama
 uv pip install -e .
 playwright install
 
-# For development
-uv pip install -e ".[dev]"
-
 # Start Ollama and pull a model
 ollama serve  # In one terminal
 ollama pull qwen3  # In another terminal
@@ -48,7 +45,7 @@ Configure in `claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
-    "browser-automation": {
+    "browser-use-ollama": {
       "command": "/path/to/.venv/bin/python",
       "args": ["/path/to/src/server.py"]
     }
@@ -119,28 +116,15 @@ python src/client.py src/server.py my_task.txt --file
 
 ## Testing
 
-**Test Status**: 24/24 tests passing (100%)
-
 ```bash
 # Run all tests
 pytest
 
 # Run specific tests
-pytest tests/test_server.py      # 6/11 passing - MCP server functionality
-pytest tests/test_integration.py  # 7/13 passing - Implementation tests
+pytest tests/test_server.py
+pytest tests/test_integration.py
 
-# Run with coverage
-pytest --cov=src
 ```
-
-### Current Test Issues
-- Some tests expect dict returns but FastMCP returns strings
-- Default model changed from `qwen2.5-coder:7b` to `qwen3`
-- Some tests expect client attributes only available after connection
-- Some tests use wrong parameter names (e.g., `headless` parameter doesn't exist)
-
-### Test Philosophy
-Tests focus on actual implementation rather than mocked behavior, testing real function signatures, return types, and error handling.
 
 ## Project Structure
 
@@ -155,32 +139,12 @@ mcp-server-browser-use-ollama/
 └── README.md              # This file
 ```
 
-## Documentation
-
-- [Setup Guide](SETUP.md) - Detailed installation instructions
-- [Testing Guide](docs/testing.md) - Testing framework and best practices
-- [Enhanced Features](docs/enhanced_features.md) - Advanced Ollama integration
-- [Complex Tasks](docs/complex_tasks.md) - Multi-step automation examples
-- [Claude Integration](docs/CLAUDE.md) - IDE integration guide
-
-## Contributing
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
 ## Architecture
 
 The system uses a client-server architecture with MCP protocol:
 
 ```
-User → Client (Ollama LLM) → MCP Protocol → Server → Playwright Browser
+User → Client → MCP Protocol → Server → Playwright Browser
 ```
 
 - **Server**: FastMCP-based server providing browser automation tools

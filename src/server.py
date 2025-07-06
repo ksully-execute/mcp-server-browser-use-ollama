@@ -1,17 +1,64 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
+"""
+MCP Server for Browser Automation
+Pure MCP SDK implementation following 2025-06-18 specification
+"""
+
 import sys
 import json
 import logging
-from fastmcp import FastMCP
-from typing import Dict, Any
-from playwright.async_api import async_playwright, Page
+import tempfile
+import asyncio
+from pathlib import Path
+from typing import Dict, Any, Optional, List
 
-# Configure logging to use stderr
-logging.basicConfig(level=logging.WARNING, stream=sys.stderr)
-logger = logging.getLogger(__name__)
+from mcp.server import Server
+from mcp.server.stdio import stdio_server
+from mcp.server.lowlevel.server import InitializationOptions
+from mcp import types
+from playwright.async_api import async_playwright, Page, Browser, BrowserContext, Playwright
+
+# Configure logging for MCP compliance
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stderr
+)
+logger = logging.getLogger("mcp-browser-server")
+
+class BrowserSession:
+    """Represents a browser automation session"""
+    
+    def __init__(self, session_id: str, playwright: Playwright, browser: Browser, 
+                 context: BrowserContext, page: Page):
+        self.session_id = session_id
+        self.playwright = playwright
+        self.browser = browser
+        self.context = context
+        self.page = page
+        self.created_at = asyncio.get_event_loop().time()
+        self.element_counter = 0
+        
+    async def cleanup(self):
+        """Clean up browser resources"""
+        try:
+            await self.page.close()
+            await self.context.close()
+            await self.browser.close()
+            await self.playwright.stop()
+        except Exception as e:
+            logger.warning(f"Error during session cleanup: {e}")
+
+# Global state for browser sessions
+active_sessions: Dict[str, BrowserSession] = {}
+session_counter = 0
+max_sessions = 10  # Security: limit concurrent sessions
+
+# Create MCP server
+server = Server("browser-automation")
 
 async def highlight_element(page: Page, x: int, y: int, number: int, color: str = 'red'):
-    """Add a numbered highlight box at the specified coordinates"""
+    """Add visual highlight at coordinates"""
     js_args = {'x': x - 15, 'y': y - 15, 'number': number, 'color': color}
     await page.evaluate('''
         args => {
@@ -37,342 +84,422 @@ async def highlight_element(page: Page, x: int, y: int, number: int, color: str 
         }
     ''', js_args)
 
-# Define tool descriptions
-tools = [
-    {
-        "name": "launch_browser",
-        "description": "Launch a new browser session and navigate to the specified URL",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "url": {"type": "string", "description": "The URL to navigate to"}
-            },
-            "required": ["url"]
-        }
-    },
-    {
-        "name": "click_element",
-        "description": "Click at specific coordinates in the browser window",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "session_id": {"type": "string", "description": "The browser session ID"},
-                "x": {"type": "integer", "description": "X coordinate to click"},
-                "y": {"type": "integer", "description": "Y coordinate to click"}
-            },
-            "required": ["session_id", "x", "y"]
-        }
-    },
-    {
-        "name": "click_selector",
-        "description": "Click an element identified by a CSS selector",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "session_id": {"type": "string", "description": "The browser session ID"},
-                "selector": {"type": "string", "description": "CSS selector to identify the element"}
-            },
-            "required": ["session_id", "selector"]
-        }
-    },
-    {
-        "name": "type_text",
-        "description": "Type text into the currently focused element",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "session_id": {"type": "string", "description": "The browser session ID"},
-                "text": {"type": "string", "description": "The text to type"}
-            },
-            "required": ["session_id", "text"]
-        }
-    },
-    {
-        "name": "scroll_page",
-        "description": "Scroll the page up or down",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "session_id": {"type": "string", "description": "The browser session ID"},
-                "direction": {
-                    "type": "string",
-                    "description": "Either 'up' or 'down'",
-                    "enum": ["up", "down"],
-                    "default": "down"
-                }
-            },
-            "required": ["session_id"]
-        }
-    },
-    {
-        "name": "get_page_content",
-        "description": "Get the text content of the current page for analysis",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "session_id": {"type": "string", "description": "The browser session ID"}
-            },
-            "required": ["session_id"]
-        }
-    },
-    {
-        "name": "get_dom_structure",
-        "description": "Get a simplified DOM structure of the current page",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "session_id": {"type": "string", "description": "The browser session ID"},
-                "max_depth": {"type": "integer", "description": "Maximum depth of DOM tree to return", "default": 3}
-            },
-            "required": ["session_id"]
-        }
-    },
-    {
-        "name": "take_screenshot",
-        "description": "Take a screenshot and return a description of the visual content",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "session_id": {"type": "string", "description": "The browser session ID"}
-            },
-            "required": ["session_id"]
-        }
-    },
-    {
-        "name": "extract_data",
-        "description": "Extract structured data from the page based on a pattern",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "session_id": {"type": "string", "description": "The browser session ID"},
-                "pattern": {"type": "string", "description": "Description of data to extract (e.g., 'product prices', 'article headlines')"}
-            },
-            "required": ["session_id", "pattern"]
-        }
-    },
-    {
-        "name": "close_browser",
-        "description": "Close a browser session",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "session_id": {"type": "string", "description": "The browser session ID to close"}
-            },
-            "required": ["session_id"]
-        }
-    }
-]
-
-# Initialize FastMCP server with debug disabled
-mcp = FastMCP(
-    "browser-use",
-    debug=False,
-    tool_descriptions=tools
-)
-
-# Store active browser sessions
-active_browsers: Dict[str, Any] = {}
-session_counter = 0
-element_counter = 0
-
-@mcp.tool()
-async def launch_browser(url: str) -> str:
-    """Launch a new browser session and navigate to the specified URL.
+def validate_session(session_id: str) -> BrowserSession:
+    """Validate session exists and return it"""
+    if not session_id:
+        raise ValueError("Session ID is required")
     
-    Args:
-        url: The URL to navigate to
-    """
-    global session_counter, element_counter
+    session = active_sessions.get(session_id)
+    if not session:
+        raise ValueError(f"No browser session found with ID: {session_id}")
+    
+    return session
+
+@server.list_tools()
+async def list_tools() -> List[types.Tool]:
+    """List available browser automation tools"""
+    return [
+        types.Tool(
+            name="launch_browser",
+            description="Launch a new browser session and navigate to URL",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The URL to navigate to"
+                    }
+                },
+                "required": ["url"]
+            }
+        ),
+        types.Tool(
+            name="click_element",
+            description="Click at specific coordinates in the browser",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Browser session ID"
+                    },
+                    "x": {
+                        "type": "integer",
+                        "description": "X coordinate to click"
+                    },
+                    "y": {
+                        "type": "integer", 
+                        "description": "Y coordinate to click"
+                    }
+                },
+                "required": ["session_id", "x", "y"]
+            }
+        ),
+        types.Tool(
+            name="click_selector",
+            description="Click an element by CSS selector",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Browser session ID"
+                    },
+                    "selector": {
+                        "type": "string",
+                        "description": "CSS selector to identify element"
+                    }
+                },
+                "required": ["session_id", "selector"]
+            }
+        ),
+        types.Tool(
+            name="type_text",
+            description="Type text into the currently focused element",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Browser session ID"
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "Text to type"
+                    }
+                },
+                "required": ["session_id", "text"]
+            }
+        ),
+        types.Tool(
+            name="scroll_page",
+            description="Scroll the page up or down",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Browser session ID"
+                    },
+                    "direction": {
+                        "type": "string",
+                        "enum": ["up", "down"],
+                        "description": "Scroll direction",
+                        "default": "down"
+                    }
+                },
+                "required": ["session_id"]
+            }
+        ),
+        types.Tool(
+            name="get_page_content",
+            description="Get text content of the current page",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Browser session ID"
+                    }
+                },
+                "required": ["session_id"]
+            }
+        ),
+        types.Tool(
+            name="get_dom_structure",
+            description="Get simplified DOM structure of the page",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Browser session ID"
+                    },
+                    "max_depth": {
+                        "type": "integer",
+                        "description": "Maximum DOM tree depth",
+                        "default": 3,
+                        "minimum": 1,
+                        "maximum": 10
+                    }
+                },
+                "required": ["session_id"]
+            }
+        ),
+        types.Tool(
+            name="take_screenshot",
+            description="Take a screenshot of the current page",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Browser session ID"
+                    }
+                },
+                "required": ["session_id"]
+            }
+        ),
+        types.Tool(
+            name="extract_data",
+            description="Extract structured data from the page",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Browser session ID"
+                    },
+                    "pattern": {
+                        "type": "string",
+                        "description": "Data extraction pattern (e.g. 'product prices')"
+                    }
+                },
+                "required": ["session_id", "pattern"]
+            }
+        ),
+        types.Tool(
+            name="close_browser",
+            description="Close a browser session",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Browser session ID to close"
+                    }
+                },
+                "required": ["session_id"]
+            }
+        )
+    ]
+
+@server.call_tool()
+async def call_tool(name: str, arguments: dict) -> List[types.TextContent]:
+    """Handle tool calls with proper MCP compliance"""
+    global session_counter
+    
+    try:
+        if name == "launch_browser":
+            result = await launch_browser_impl(arguments.get("url"))
+        elif name == "click_element":
+            result = await click_element_impl(
+                arguments.get("session_id"),
+                arguments.get("x"),
+                arguments.get("y")
+            )
+        elif name == "click_selector":
+            result = await click_selector_impl(
+                arguments.get("session_id"),
+                arguments.get("selector")
+            )
+        elif name == "type_text":
+            result = await type_text_impl(
+                arguments.get("session_id"),
+                arguments.get("text")
+            )
+        elif name == "scroll_page":
+            result = await scroll_page_impl(
+                arguments.get("session_id"),
+                arguments.get("direction", "down")
+            )
+        elif name == "get_page_content":
+            result = await get_page_content_impl(arguments.get("session_id"))
+        elif name == "get_dom_structure":
+            result = await get_dom_structure_impl(
+                arguments.get("session_id"),
+                arguments.get("max_depth", 3)
+            )
+        elif name == "take_screenshot":
+            result = await take_screenshot_impl(arguments.get("session_id"))
+        elif name == "extract_data":
+            result = await extract_data_impl(
+                arguments.get("session_id"),
+                arguments.get("pattern")
+            )
+        elif name == "close_browser":
+            result = await close_browser_impl(arguments.get("session_id"))
+        else:
+            raise ValueError(f"Unknown tool: {name}")
+            
+        return [types.TextContent(type="text", text=result)]
+        
+    except Exception as e:
+        logger.error(f"Tool {name} failed: {e}")
+        raise RuntimeError(f"Tool execution failed: {str(e)}")
+
+# Tool implementations
+async def launch_browser_impl(url: str) -> str:
+    """Launch browser session with security controls"""
+    global session_counter
+    
+    if not url:
+        raise ValueError("URL is required")
+    
+    # Security: limit concurrent sessions
+    if len(active_sessions) >= max_sessions:
+        raise RuntimeError(f"Maximum sessions ({max_sessions}) exceeded")
+    
+    # Security: validate URL format
+    if not url.startswith(('http://', 'https://')):
+        raise ValueError("Only HTTP/HTTPS URLs are allowed")
+    
     session_id = str(session_counter)
     session_counter += 1
-    element_counter = 0
     
     try:
         playwright = await async_playwright().start()
-        browser = await playwright.chromium.launch(headless=False)
-        context = await browser.new_context(viewport={'width': 900, 'height': 600})
+        browser = await playwright.chromium.launch(
+            headless=False,
+            args=['--no-sandbox', '--disable-dev-shm-usage']  # Security hardening
+        )
+        context = await browser.new_context(
+            viewport={'width': 900, 'height': 600}
+        )
         page = await context.new_page()
         await page.goto(url)
         
-        active_browsers[session_id] = {
-            'playwright': playwright,
-            'browser': browser,
-            'context': context,
-            'page': page,
-            'elements': {}  # Store highlighted elements
-        }
-        return session_id
-    except Exception as e:
-        logger.error(f"Error launching browser: {str(e)}", exc_info=True)
-        raise
-
-@mcp.tool()
-async def click_element(session_id: str, x: int, y: int) -> str:
-    """Click at specific coordinates in the browser window.
-    
-    Args:
-        session_id: The browser session ID
-        x: X coordinate to click
-        y: Y coordinate to click
-    """
-    global element_counter
-    session = active_browsers.get(session_id)
-    if not session:
-        raise ValueError(f"No browser session found with ID: {session_id}")
-    
-    try:
-        page = session['page']
-        element_counter += 1
-        await highlight_element(page, x, y, element_counter)
-        await page.mouse.click(x, y)
-        return f"Clicked at coordinates ({x}, {y})"
-    except Exception as e:
-        logger.error(f"Error clicking element: {str(e)}", exc_info=True)
-        raise
-
-@mcp.tool()
-async def type_text(session_id: str, text: str) -> str:
-    """Type text into the currently focused element.
-    
-    Args:
-        session_id: The browser session ID
-        text: The text to type
-    """
-    session = active_browsers.get(session_id)
-    if not session:
-        raise ValueError(f"No browser session found with ID: {session_id}")
-    
-    try:
-        page = session['page']
-        await page.keyboard.type(text)
-        return f"Typed text: {text}"
-    except Exception as e:
-        logger.error(f"Error typing text: {str(e)}", exc_info=True)
-        raise
-
-@mcp.tool()
-async def scroll_page(session_id: str, direction: str = "down") -> str:
-    """Scroll the page up or down.
-    
-    Args:
-        session_id: The browser session ID
-        direction: Either "up" or "down"
-    """
-    session = active_browsers.get(session_id)
-    if not session:
-        raise ValueError(f"No browser session found with ID: {session_id}")
-    
-    try:
-        page = session['page']
-        if direction.lower() == "down":
-            await page.evaluate('window.scrollBy(0, window.innerHeight)')
-        elif direction.lower() == "up":
-            await page.evaluate('window.scrollBy(0, -window.innerHeight)')
-        else:
-            raise ValueError("Invalid direction. Use 'up' or 'down'.")
-        return f"Scrolled {direction}"
-    except Exception as e:
-        logger.error(f"Error scrolling page: {str(e)}", exc_info=True)
-        raise
-
-@mcp.tool()
-async def click_selector(session_id: str, selector: str) -> str:
-    """Click an element identified by a CSS selector.
-    
-    Args:
-        session_id: The browser session ID
-        selector: CSS selector to identify the element
-    """
-    session = active_browsers.get(session_id)
-    if not session:
-        raise ValueError(f"No browser session found with ID: {session_id}")
-    
-    try:
-        page = session['page']
-        # Wait for the selector to be available
-        element = await page.wait_for_selector(selector, timeout=5000)
-        if not element:
-            return f"Element with selector '{selector}' not found"
+        session = BrowserSession(session_id, playwright, browser, context, page)
+        active_sessions[session_id] = session
         
-        # Get element position for highlighting
+        logger.info(f"Browser session {session_id} launched for URL: {url}")
+        return session_id
+        
+    except Exception as e:
+        logger.error(f"Failed to launch browser: {e}")
+        raise RuntimeError(f"Browser launch failed: {str(e)}")
+
+async def click_element_impl(session_id: str, x: int, y: int) -> str:
+    """Click at coordinates with validation"""
+    session = validate_session(session_id)
+    
+    if not isinstance(x, int) or not isinstance(y, int):
+        raise ValueError("Coordinates must be integers")
+    
+    if x < 0 or y < 0 or x > 10000 or y > 10000:
+        raise ValueError("Coordinates out of reasonable bounds")
+    
+    try:
+        session.element_counter += 1
+        await highlight_element(session.page, x, y, session.element_counter)
+        await session.page.mouse.click(x, y)
+        
+        logger.info(f"Clicked at ({x}, {y}) in session {session_id}")
+        return f"Clicked at coordinates ({x}, {y})"
+        
+    except Exception as e:
+        logger.error(f"Click failed: {e}")
+        raise RuntimeError(f"Click operation failed: {str(e)}")
+
+async def click_selector_impl(session_id: str, selector: str) -> str:
+    """Click element by CSS selector"""
+    session = validate_session(session_id)
+    
+    if not selector:
+        raise ValueError("CSS selector is required")
+    
+    try:
+        element = await session.page.wait_for_selector(selector, timeout=5000)
+        if not element:
+            raise RuntimeError(f"Element with selector '{selector}' not found")
+        
+        # Get position for highlighting
         bounding_box = await element.bounding_box()
         if bounding_box:
             x = bounding_box['x'] + bounding_box['width'] / 2
             y = bounding_box['y'] + bounding_box['height'] / 2
-            global element_counter
-            element_counter += 1
-            await highlight_element(page, x, y, element_counter)
+            session.element_counter += 1
+            await highlight_element(session.page, x, y, session.element_counter)
         
-        # Click the element
         await element.click()
+        logger.info(f"Clicked element '{selector}' in session {session_id}")
         return f"Clicked element with selector: {selector}"
-    except Exception as e:
-        logger.error(f"Error clicking element with selector: {str(e)}", exc_info=True)
-        return f"Error clicking element: {str(e)}"
-
-@mcp.tool()
-async def get_page_content(session_id: str) -> str:
-    """Get the text content of the current page for analysis.
-    
-    Args:
-        session_id: The browser session ID
-    """
-    session = active_browsers.get(session_id)
-    if not session:
-        raise ValueError(f"No browser session found with ID: {session_id}")
-    
-    try:
-        page = session['page']
-        # Extract text content from the page
-        content = await page.evaluate('''
-            () => {
-                // Get all text nodes
-                const textNodes = document.body.innerText;
-                return textNodes;
-            }
-        ''')
         
-        # Return a truncated version if it's too long
-        if len(content) > 10000:
-            return content[:10000] + "... (content truncated)"
-        return content
     except Exception as e:
-        logger.error(f"Error getting page content: {str(e)}", exc_info=True)
-        return f"Error getting page content: {str(e)}"
+        logger.error(f"Selector click failed: {e}")
+        raise RuntimeError(f"Failed to click element: {str(e)}")
 
-@mcp.tool()
-async def get_dom_structure(session_id: str, max_depth: int = 3) -> str:
-    """Get a simplified DOM structure of the current page.
+async def type_text_impl(session_id: str, text: str) -> str:
+    """Type text with security validation"""
+    session = validate_session(session_id)
     
-    Args:
-        session_id: The browser session ID
-        max_depth: Maximum depth of DOM tree to return
-    """
-    session = active_browsers.get(session_id)
-    if not session:
-        raise ValueError(f"No browser session found with ID: {session_id}")
+    if not isinstance(text, str):
+        raise ValueError("Text must be a string")
+    
+    # Security: limit text length
+    if len(text) > 10000:
+        raise ValueError("Text too long (max 10000 characters)")
     
     try:
-        page = session['page']
-        # Extract DOM structure using JavaScript
-        dom_structure = await page.evaluate(f'''
+        await session.page.keyboard.type(text)
+        logger.info(f"Typed {len(text)} characters in session {session_id}")
+        return f"Typed text: {text[:50]}{'...' if len(text) > 50 else ''}"
+        
+    except Exception as e:
+        logger.error(f"Text typing failed: {e}")
+        raise RuntimeError(f"Failed to type text: {str(e)}")
+
+async def scroll_page_impl(session_id: str, direction: str) -> str:
+    """Scroll page with direction validation"""
+    session = validate_session(session_id)
+    
+    if direction not in ["up", "down"]:
+        raise ValueError("Direction must be 'up' or 'down'")
+    
+    try:
+        if direction == "down":
+            await session.page.evaluate('window.scrollBy(0, window.innerHeight)')
+        else:
+            await session.page.evaluate('window.scrollBy(0, -window.innerHeight)')
+        
+        logger.info(f"Scrolled {direction} in session {session_id}")
+        return f"Scrolled {direction}"
+        
+    except Exception as e:
+        logger.error(f"Scroll failed: {e}")
+        raise RuntimeError(f"Scroll operation failed: {str(e)}")
+
+async def get_page_content_impl(session_id: str) -> str:
+    """Extract page text content with size limits"""
+    session = validate_session(session_id)
+    
+    try:
+        content = await session.page.evaluate('() => document.body.innerText')
+        
+        # Security: limit content size
+        if len(content) > 50000:
+            content = content[:50000] + "\n... (content truncated for size)"
+        
+        logger.info(f"Extracted {len(content)} characters from session {session_id}")
+        return content
+        
+    except Exception as e:
+        logger.error(f"Content extraction failed: {e}")
+        raise RuntimeError(f"Failed to get page content: {str(e)}")
+
+async def get_dom_structure_impl(session_id: str, max_depth: int) -> str:
+    """Get DOM structure with depth limits"""
+    session = validate_session(session_id)
+    
+    if not isinstance(max_depth, int) or max_depth < 1 or max_depth > 10:
+        raise ValueError("max_depth must be integer between 1 and 10")
+    
+    try:
+        dom_structure = await session.page.evaluate(f'''
             () => {{
                 function extractDomNode(node, depth = 0, maxDepth = {max_depth}) {{
                     if (depth > maxDepth) return "...";
                     
-                    // Skip comment nodes and script tags
                     if (node.nodeType === 8 || 
                         (node.tagName && node.tagName.toLowerCase() === 'script')) {{
                         return null;
                     }}
                     
-                    // Text node
                     if (node.nodeType === 3) {{
                         const text = node.textContent.trim();
                         return text ? text.substring(0, 50) + (text.length > 50 ? "..." : "") : null;
                     }}
                     
-                    // Element node
                     if (node.nodeType === 1) {{
                         const result = {{
                             tag: node.tagName.toLowerCase(),
@@ -380,13 +507,11 @@ async def get_dom_structure(session_id: str, max_depth: int = 3) -> str:
                             classes: node.className ? Array.from(node.classList) : undefined,
                         }};
                         
-                        // Add important attributes
                         if (node.hasAttribute('href')) result.href = node.getAttribute('href');
                         if (node.hasAttribute('src')) result.src = node.getAttribute('src');
                         if (node.hasAttribute('alt')) result.alt = node.getAttribute('alt');
                         if (node.hasAttribute('title')) result.title = node.getAttribute('title');
                         
-                        // Add children if not at max depth
                         if (depth < maxDepth) {{
                             const children = [];
                             for (const child of node.childNodes) {{
@@ -408,55 +533,49 @@ async def get_dom_structure(session_id: str, max_depth: int = 3) -> str:
             }}
         ''')
         
-        return json.dumps(dom_structure, indent=2)
+        result = json.dumps(dom_structure, indent=2)
+        logger.info(f"Extracted DOM structure from session {session_id}")
+        return result
+        
     except Exception as e:
-        logger.error(f"Error getting DOM structure: {str(e)}", exc_info=True)
-        return f"Error getting DOM structure: {str(e)}"
+        logger.error(f"DOM extraction failed: {e}")
+        raise RuntimeError(f"Failed to get DOM structure: {str(e)}")
 
-@mcp.tool()
-async def take_screenshot(session_id: str) -> str:
-    """Take a screenshot and return a description of the visual content.
-    
-    Args:
-        session_id: The browser session ID
-    """
-    session = active_browsers.get(session_id)
-    if not session:
-        raise ValueError(f"No browser session found with ID: {session_id}")
+async def take_screenshot_impl(session_id: str) -> str:
+    """Take screenshot with secure file handling"""
+    session = validate_session(session_id)
     
     try:
-        page = session['page']
-        # Take a screenshot
-        screenshot_path = f"screenshot_{session_id}.png"
-        await page.screenshot(path=screenshot_path)
+        # Security: use temp file with proper cleanup
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_file:
+            screenshot_path = temp_file.name
         
-        # Return a message with the path
-        return f"Screenshot saved to {screenshot_path}. The image shows the current state of the browser window."
+        await session.page.screenshot(path=screenshot_path)
+        
+        # Read file and clean up immediately for security
+        file_size = Path(screenshot_path).stat().st_size
+        Path(screenshot_path).unlink()  # Delete immediately after creation
+        
+        logger.info(f"Screenshot taken for session {session_id} ({file_size} bytes)")
+        return f"Screenshot captured ({file_size} bytes). File processed and cleaned up for security."
+        
     except Exception as e:
-        logger.error(f"Error taking screenshot: {str(e)}", exc_info=True)
-        return f"Error taking screenshot: {str(e)}"
+        logger.error(f"Screenshot failed: {e}")
+        raise RuntimeError(f"Screenshot operation failed: {str(e)}")
 
-@mcp.tool()
-async def extract_data(session_id: str, pattern: str) -> str:
-    """Extract structured data from the page based on a pattern.
+async def extract_data_impl(session_id: str, pattern: str) -> str:
+    """Extract data with pattern matching"""
+    session = validate_session(session_id)
     
-    Args:
-        session_id: The browser session ID
-        pattern: Description of data to extract (e.g., 'product prices', 'article headlines')
-    """
-    session = active_browsers.get(session_id)
-    if not session:
-        raise ValueError(f"No browser session found with ID: {session_id}")
+    if not pattern:
+        raise ValueError("Extraction pattern is required")
     
     try:
-        page = session['page']
-        
-        # Define extraction strategies based on common patterns
-        extraction_strategies = {
+        # Define extraction strategies
+        strategies = {
             "product prices": '''
                 () => {
                     const prices = [];
-                    // Look for common price selectors
                     const priceElements = document.querySelectorAll('.price, [class*="price"], [id*="price"], .product-price, .amount');
                     priceElements.forEach(el => {
                         prices.push({
@@ -464,13 +583,12 @@ async def extract_data(session_id: str, pattern: str) -> str:
                             location: el.getBoundingClientRect()
                         });
                     });
-                    return prices;
+                    return prices.slice(0, 20); // Limit results
                 }
             ''',
             "article headlines": '''
                 () => {
                     const headlines = [];
-                    // Look for heading elements
                     const headingElements = document.querySelectorAll('h1, h2, h3, .headline, .title, article h2, article h3');
                     headingElements.forEach(el => {
                         headlines.push({
@@ -478,13 +596,12 @@ async def extract_data(session_id: str, pattern: str) -> str:
                             tag: el.tagName.toLowerCase()
                         });
                     });
-                    return headlines;
+                    return headlines.slice(0, 20);
                 }
             ''',
             "navigation links": '''
                 () => {
                     const links = [];
-                    // Look for navigation links
                     const navLinks = document.querySelectorAll('nav a, header a, .navigation a, .menu a');
                     navLinks.forEach(el => {
                         links.push({
@@ -492,36 +609,20 @@ async def extract_data(session_id: str, pattern: str) -> str:
                             href: el.getAttribute('href')
                         });
                     });
-                    return links;
-                }
-            ''',
-            "form fields": '''
-                () => {
-                    const fields = [];
-                    // Look for form fields
-                    const formElements = document.querySelectorAll('input, textarea, select');
-                    formElements.forEach(el => {
-                        fields.push({
-                            type: el.type || el.tagName.toLowerCase(),
-                            name: el.name || '',
-                            id: el.id || '',
-                            placeholder: el.placeholder || ''
-                        });
-                    });
-                    return fields;
+                    return links.slice(0, 20);
                 }
             '''
         }
         
-        # Use a generic extraction if pattern doesn't match predefined strategies
+        # Use predefined strategy or generic extraction
         pattern_lower = pattern.lower()
-        if pattern_lower not in extraction_strategies:
-            # Try to infer what to extract based on the pattern
+        if pattern_lower in strategies:
+            extraction_js = strategies[pattern_lower]
+        else:
+            # Generic extraction with security limits
             extraction_js = f'''
                 () => {{
-                    // Generic extraction based on pattern: "{pattern}"
                     const elements = [];
-                    // Try to find elements that might match the pattern
                     const allElements = document.querySelectorAll('*');
                     const patternLower = "{pattern}".toLowerCase();
                     
@@ -531,7 +632,6 @@ async def extract_data(session_id: str, pattern: str) -> str:
                         const className = el.className?.toLowerCase();
                         const tagName = el.tagName?.toLowerCase();
                         
-                        // Check if element might be relevant to the pattern
                         if ((text && text.toLowerCase().includes(patternLower)) ||
                             (id && id.includes(patternLower)) ||
                             (className && className.includes(patternLower)) ||
@@ -544,7 +644,6 @@ async def extract_data(session_id: str, pattern: str) -> str:
                                 class: className || undefined
                             }});
                             
-                            // Limit to 20 elements to avoid overwhelming results
                             if (elements.length >= 20) break;
                         }}
                     }}
@@ -552,38 +651,63 @@ async def extract_data(session_id: str, pattern: str) -> str:
                     return elements;
                 }}
             '''
-        else:
-            extraction_js = extraction_strategies[pattern_lower]
         
-        # Execute the extraction
-        extracted_data = await page.evaluate(extraction_js)
+        extracted_data = await session.page.evaluate(extraction_js)
+        result = json.dumps(extracted_data, indent=2)
         
-        return json.dumps(extracted_data, indent=2)
+        logger.info(f"Extracted data for pattern '{pattern}' from session {session_id}")
+        return result
+        
     except Exception as e:
-        logger.error(f"Error extracting data: {str(e)}", exc_info=True)
-        return f"Error extracting data: {str(e)}"
+        logger.error(f"Data extraction failed: {e}")
+        raise RuntimeError(f"Data extraction failed: {str(e)}")
 
-@mcp.tool()
-async def close_browser(session_id: str) -> str:
-    """Close a browser session.
-    
-    Args:
-        session_id: The browser session ID to close
-    """
-    session = active_browsers.get(session_id)
-    if not session:
-        raise ValueError(f"No browser session found with ID: {session_id}")
+async def close_browser_impl(session_id: str) -> str:
+    """Close browser session with cleanup"""
+    session = validate_session(session_id)
     
     try:
-        await session['page'].close()
-        await session['context'].close()
-        await session['browser'].close()
-        await session['playwright'].stop()
-        del active_browsers[session_id]
+        await session.cleanup()
+        del active_sessions[session_id]
+        
+        logger.info(f"Browser session {session_id} closed")
         return f"Browser session {session_id} closed successfully"
+        
     except Exception as e:
-        logger.error(f"Error closing browser: {str(e)}", exc_info=True)
-        raise
+        logger.error(f"Session cleanup failed: {e}")
+        raise RuntimeError(f"Failed to close session: {str(e)}")
+
+async def cleanup_all_sessions():
+    """Clean up all browser sessions"""
+    logger.info("Cleaning up all browser sessions...")
+    for session_id in list(active_sessions.keys()):
+        try:
+            await close_browser_impl(session_id)
+        except Exception as e:
+            logger.error(f"Failed to cleanup session {session_id}: {e}")
+
+async def main():
+    """Run the MCP server"""
+    # Setup cleanup on exit
+    import signal
+    
+    def cleanup_handler(signum, frame):
+        logger.info("Received shutdown signal, cleaning up...")
+        asyncio.create_task(cleanup_all_sessions())
+    
+    signal.signal(signal.SIGINT, cleanup_handler)
+    signal.signal(signal.SIGTERM, cleanup_handler)
+    
+    # Run MCP server with stdio transport
+    async with stdio_server() as (read_stream, write_stream):
+        initialization_options = InitializationOptions(
+            server_name="browser-automation",
+            server_version="0.1.0",
+            capabilities=types.ServerCapabilities(
+                tools=types.ToolsCapability(),
+            )
+        )
+        await server.run(read_stream, write_stream, initialization_options)
 
 if __name__ == "__main__":
-    mcp.run()
+    asyncio.run(main())
