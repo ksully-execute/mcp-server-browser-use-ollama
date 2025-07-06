@@ -1,0 +1,75 @@
+{
+    "description": "Browser automation and control system built on the Model Context Protocol (MCP) with Ollama integration",
+    "name": "io.github.cam10001110101/mcp-server-browser-use-ollama",
+    "packages": [
+        {
+            "registry_name": "pypi",
+            "name": "mcp-server-browser-use-ollama",
+            "version": "0.1.0",
+            "package_arguments": [
+                {
+                    "description": "URL to navigate to when launching browser",
+                    "is_required": false,
+                    "format": "string",
+                    "value": "https://www.google.com",
+                    "default": "https://www.google.com",
+                    "type": "positional",
+                    "value_hint": "https://example.com"
+                }
+            ],
+            "environment_variables": [
+                {
+                    "name": "OLLAMA_HOST",
+                    "description": "Ollama server host URL",
+                    "default": "http://localhost:11434",
+                    "is_required": false
+                },
+                {
+                    "name": "OLLAMA_MODEL",
+                    "description": "Ollama model to use for AI-driven automation",
+                    "default": "qwen3",
+                    "is_required": false
+                }
+            ]
+        }
+    ],
+    "repository": {
+        "url": "https://github.com/Cam10001110101/mcp-server-browser-use-ollama",
+        "source": "github"
+    },
+    "version_detail": {
+        "version": "0.1.0",
+        "release_date": "2025-01-06T00:00:00Z",
+        "is_latest": true
+    },
+    "remotes": [
+        {
+            "transport_type": "stdio",
+            "url": "stdio://mcp-browser-server"
+        }
+    ],
+    "license": "MIT",
+    "keywords": ["mcp", "browser-automation", "ollama", "playwright", "ai"],
+    "authors": [
+        {
+            "name": "Cam10001110101"
+        }
+    ],
+    "supported_platforms": ["windows", "macos", "linux"],
+    "installation_commands": {
+        "pip": "pip install mcp-server-browser-use-ollama && playwright install",
+        "uv": "uv pip install mcp-server-browser-use-ollama && playwright install"
+    },
+    "claude_desktop_config": {
+        "mcpServers": {
+            "browser-use-ollama": {
+                "command": "python",
+                "args": ["-m", "src.server"],
+                "env": {
+                    "OLLAMA_HOST": "http://localhost:11434",
+                    "OLLAMA_MODEL": "qwen3"
+                }
+            }
+        }
+    }
+}
