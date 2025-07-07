@@ -164,6 +164,7 @@ desktop.ini
 # User-requested
 .venv
 CLAUDE.md
+docs/CLAUDE.md
 
 # uv
 uv.lock
