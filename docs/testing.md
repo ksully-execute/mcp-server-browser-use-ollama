@@ -6,19 +6,19 @@ This project uses pytest for testing. The test suite focuses on testing the actu
 
 ```
 tests/
-├── README.md                    # Test suite documentation  
 ├── __init__.py                  # Makes tests a package
 ├── conftest.py                  # Shared fixtures and configuration
-├── test_server.py              # Tests for MCP server functionality
-├── test_actual_implementation.py # Tests for actual implementation  
+├── test_server_mcp.py          # Pure MCP SDK implementation tests (22 tests)
+├── test_server.py              # Legacy FastMCP tests (kept for reference)
+├── test_integration.py         # End-to-end integration tests
 └── run_tests.py                # Test runner script
 ```
 
 ## Current Test Status
 
-- **test_server.py**: 6/11 tests passing - Tests MCP server tools and functionality
-- **test_actual_implementation.py**: 7/13 tests passing - Tests real implementation details
-- **Overall**: 13/24 tests passing (54%)
+- **test_server_mcp.py**: Tests for pure MCP implementation - Primary test suite
+- **test_integration.py**: Integration tests with browser automation
+- **test_server.py**: Legacy tests (may fail due to FastMCP removal)
 
 ## Running Tests
 
@@ -28,14 +28,14 @@ tests/
 # Install development dependencies
 uv pip install -e ".[dev]"
 
-# Run all unit tests
+# Run pure MCP tests (recommended)
+pytest tests/test_server_mcp.py -v
+
+# Run all tests
 pytest
 
-# Run with verbose output
-pytest -v
-
 # Run specific test file
-pytest tests/test_server.py
+pytest tests/test_server_mcp.py
 
 # Run tests matching a pattern
 pytest -k "test_browser"

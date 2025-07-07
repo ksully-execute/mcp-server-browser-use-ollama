@@ -26,26 +26,29 @@ playwright install
 
 ### Running the Application
 ```bash
-# Run with default Ollama model (qwen2.5-coder:7b)
+# Interactive client
 python src/client.py src/server.py
 
-# Run with specific Ollama model
-OLLAMA_MODEL=llama3.2:latest python src/client.py src/server.py
+# With custom task
+python src/client.py src/server.py "Navigate to Google and search for MCP"
 
-# Run enhanced client with conversation history
-python src/enhanced_client.py src/server.py
+# From task file
+python src/client.py src/server.py task.txt --file
 
-# Run complex task automation
-python src/run_complex_task.py src/server.py
+# With specific Ollama model
+python src/client.py src/server.py "Your task" --model llama3.2:latest
 ```
 
 ### Testing
 ```bash
-# Run all tests
-cd tests && ./run_all_tests.sh
+# Run pure MCP tests (recommended)
+pytest tests/test_server_mcp.py -v
 
-# Run enhanced tests only
-cd tests && ./run_enhanced_test.sh
+# Run all tests
+pytest
+
+# Run with test runner script
+python tests/run_tests.py
 ```
 
 ## Project Structure
@@ -54,14 +57,11 @@ cd tests && ./run_enhanced_test.sh
 mcp-server-browser-use-ollama/
 ├── src/                    # Core source code
 │   ├── server.py          # MCP server implementation
-│   ├── client.py          # Basic MCP client
-│   ├── enhanced_client.py # Advanced client
-│   └── run_complex_task.py # Complex task runner
+│   └── client.py          # Interactive client with Ollama integration
 ├── docs/                   # Documentation
-├── examples/               # Example prompts
-├── tests/                  # Test scripts
+├── tests/                  # Test suite
 ├── pyproject.toml         # Project configuration
-└── requirements.txt       # Dependencies
+└── mcp-server.json        # MCP Central registry config
 ```
 
 ## Architecture
@@ -70,13 +70,11 @@ The codebase implements a client-server architecture with MCP protocol:
 
 1. **src/server.py**: MCP server that provides browser automation tools via Playwright
    - Implements 10 core tools: launch_browser, click_element, type_text, scroll_page, etc.
-   - Uses FastMCP framework for MCP protocol implementation
+   - Uses pure MCP SDK for protocol implementation
    - Browser control through Playwright library
 
-2. **Client Applications** (in src/):
-   - **client.py**: Basic MCP client with Ollama integration
-   - **enhanced_client.py**: Advanced client with conversation history and caching
-   - **run_complex_task.py**: Complex task automation runner
+2. **Client Application**:
+   - **client.py**: Interactive MCP client with Ollama integration, conversation history, and file input support
 
 3. **Integration Flow**:
    ```
@@ -101,6 +99,7 @@ The codebase implements a client-server architecture with MCP protocol:
 ## Development Notes
 
 - The project uses `pyproject.toml` for configuration (PEP 518 compliant)
-- No traditional unit tests - testing is done through integration test scripts
+- Test suite includes pure MCP tests (test_server_mcp.py) and integration tests
 - Browser automation tools are implemented as MCP tools in server.py
-- Client applications demonstrate different usage patterns and capabilities
+- Pure MCP SDK implementation (not FastMCP) for full protocol compliance
+- Browser launches maximized (1920x1080) to minimize scrolling needs
