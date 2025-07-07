@@ -118,13 +118,15 @@ python src/client.py src/server.py my_task.txt --file
 ## Testing
 
 ```bash
+# Run pure MCP tests (recommended)
+pytest tests/test_server_mcp.py -v
+
 # Run all tests
 pytest
 
-# Run specific tests
-pytest tests/test_server.py
-pytest tests/test_integration.py
-
+# Run specific test categories
+pytest tests/test_server_mcp.py    # Pure MCP implementation tests
+pytest tests/test_integration.py   # Integration tests
 ```
 
 ## Project Structure
@@ -148,7 +150,7 @@ The system uses a client-server architecture with MCP protocol:
 User → Client → MCP Protocol → Server → Playwright Browser
 ```
 
-- **Server**: FastMCP-based server providing browser automation tools
+- **Server**: Pure MCP SDK server providing browser automation tools
 - **Client**: Langchain-Ollama integration for natural language processing
 - **Transport**: stdio-based MCP communication
 - **Browser**: Playwright automation for cross-browser support
