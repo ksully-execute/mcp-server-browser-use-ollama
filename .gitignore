@@ -161,10 +161,7 @@ desktop.ini
 *.tmp
 *.log
 
-# User-requested
-.venv
-CLAUDE.md
-docs/CLAUDE.md
-
-# uv
-uv.lock
+# Project specific
+*.env
+.env.*
+!.env.example
