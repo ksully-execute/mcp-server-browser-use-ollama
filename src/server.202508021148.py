@@ -88,7 +88,7 @@ async def highlight_element(page: Page, x: int, y: int, number: int, color: str 
 async def clear_highlights(page: Page):
     """Remove all highlight elements"""
     await page.evaluate('''
-        document.querySelectorAll("div[style*='z-index: 10000'], div[style*='z-index: 10001'], .selector-debug-box, .selector-debug-dot, .selector-legend, #selector-centered-tooltip").forEach(el => el.remove())
+        document.querySelectorAll("div[style*='z-index: 10000'], .selector-debug-box, .selector-debug-dot, .selector-legend, #selector-centered-tooltip").forEach(el => el.remove())
     ''')
 
 def validate_session(session_id: str) -> BrowserSession:
@@ -813,7 +813,7 @@ async def show_selectors_impl(session_id: str, element_types: str = "interactive
                         results.push({{
                             selector: selector,
                             x: rect.left + rect.width / 2,
-                            y: rect.top,  // Changed to top of element instead of center
+                            y: rect.top + rect.height / 2,
                             width: rect.width,
                             height: rect.height,
                             color: color,
@@ -836,7 +836,7 @@ async def show_selectors_impl(session_id: str, element_types: str = "interactive
                     dot.className = 'selector-debug-dot';
                     dot.style.position = 'absolute';
                     dot.style.left = (data.x - 8) + 'px';
-                    dot.style.top = (data.y + data.height + 5) + 'px'; // Position at bottom of element + 5px gap
+                    dot.style.top = (data.y + data.height/2 + 12) + 'px'; // Position below element
                     dot.style.width = '16px';
                     dot.style.height = '16px';
                     dot.style.backgroundColor = data.color;
@@ -844,7 +844,6 @@ async def show_selectors_impl(session_id: str, element_types: str = "interactive
                     dot.style.borderRadius = '50%';
                     dot.style.zIndex = '10001';
                     dot.style.cursor = 'pointer';
-                    dot.style.pointerEvents = 'none'; // Don't block clicks by default
                     dot.style.fontSize = '10px';
                     dot.style.color = 'white';
                     dot.style.fontWeight = 'bold';
@@ -854,29 +853,6 @@ async def show_selectors_impl(session_id: str, element_types: str = "interactive
                     dot.style.justifyContent = 'center';
                     dot.style.lineHeight = '1';
                     dot.textContent = (data.index + 1);
-                    
-                    // Create invisible hover zone that enables pointer events
-                    const hoverZone = document.createElement('div');
-                    hoverZone.style.position = 'absolute';
-                    hoverZone.style.left = (data.x - 20) + 'px';
-                    hoverZone.style.top = (data.y + data.height - 5) + 'px';
-                    hoverZone.style.width = '40px';
-                    hoverZone.style.height = '40px';
-                    hoverZone.style.zIndex = '10000';
-                    hoverZone.style.pointerEvents = 'auto';
-                    
-                    // Enable dot clicks on hover
-                    hoverZone.addEventListener('mouseenter', () => {
-                        dot.style.pointerEvents = 'auto';
-                        dot.style.transform = 'scale(1.2)';
-                    });
-                    
-                    hoverZone.addEventListener('mouseleave', () => {
-                        dot.style.pointerEvents = 'none';
-                        dot.style.transform = 'scale(1)';
-                    });
-                    
-                    document.body.appendChild(hoverZone);
                     
                     // Store data for tooltip display
                     dot.setAttribute('data-selector', data.selector);
@@ -1016,50 +992,66 @@ async def show_selectors_impl(session_id: str, element_types: str = "interactive
         ''')
         
         # Create summary
-        summary = f"Added {len(selectors_data)} clickable debug dots ({element_types} elements):\\n"
-        summary += "🔵 Blue = Buttons | 🟢 Green = Inputs | 🟠 Orange = Links | 🟣 Purple = Other\\n"
-        summary += "Click numbered dots to see selector details in centered tooltip with copy button.\\n\\n"
-        for i, data in enumerate(selectors_data):
-            summary += f"{i+1}. {data['selector']} ({data['tag']})\\n"
+        summary = f"Added {len(selectors_data)} clickable debug dots ({element_types} elements):\n"
+        summary += "🔵 Blue = Buttons | 🟢 Green = Inputs | 🟠 Orange = Links | 🟣 Purple = Other\n"
+        summary += "Click numbered dots to see selector details in centered tooltip with copy button.\n\n"
+        for i, data in enumerate(selectors_data[:10]):  # Show first 10 only
+            summary += f"{i+1}. {data['selector']} ({data['tag']})\n"
+        if len(selectors_data) > 10:
+            summary += f"... and {len(selectors_data) - 10} more\n"
         
-        logger.info(f"Showed {len(selectors_data)} selectors in session {session_id}")
+        logger.info(f"Displayed {len(selectors_data)} selector debug dots in session {session_id}")
         return summary
         
     except Exception as e:
         logger.error(f"Show selectors failed: {e}")
         raise RuntimeError(f"Failed to show selectors: {str(e)}")
 
-async def cleanup_all_sessions():
-    """Clean up all browser sessions"""
-    logger.info("Cleaning up all browser sessions...")
-    for session_id in list(active_sessions.keys()):
+# Cleanup handler for graceful shutdown
+async def cleanup_sessions():
+    """Clean up all active sessions on shutdown"""
+    for session_id, session in list(active_sessions.items()):
         try:
-            await close_browser_impl(session_id)
+            await session.cleanup()
         except Exception as e:
-            logger.error(f"Failed to cleanup session {session_id}: {e}")
+            logger.warning(f"Error cleaning up session {session_id}: {e}")
+    active_sessions.clear()
+    logger.info("All browser sessions cleaned up")
 
+# Main entry point for MCP
 async def main():
-    """Run the MCP server"""
-    # Setup cleanup on exit
-    import signal
+    """Main function to run the MCP server"""
+    logger.info("Starting browser automation MCP server...")
     
-    def cleanup_handler(signum, frame):
-        logger.info("Received shutdown signal, cleaning up...")
-        asyncio.create_task(cleanup_all_sessions())
+    options = InitializationOptions(
+        server_name="browser-automation",
+        server_version="0.1.0",
+        capabilities=["tools"]
+    )
     
-    signal.signal(signal.SIGINT, cleanup_handler)
-    signal.signal(signal.SIGTERM, cleanup_handler)
-    
-    # Run MCP server with stdio transport
-    async with stdio_server() as (read_stream, write_stream):
-        initialization_options = InitializationOptions(
-            server_name="browser-automation",
-            server_version="0.1.0",
-            capabilities=types.ServerCapabilities(
-                tools=types.ToolsCapability(),
-            )
+    try:
+        await stdio_server(
+            server,
+            options=options,
+            raise_exceptions=False
         )
-        await server.run(read_stream, write_stream, initialization_options)
+    except KeyboardInterrupt:
+        logger.info("Server interrupted, cleaning up...")
+    finally:
+        await cleanup_sessions()
+    
+    logger.info("Browser automation MCP server stopped")
 
 if __name__ == "__main__":
+    import sys
+    import signal
+    
+    # Handle interrupts gracefully
+    def signal_handler(sig, frame):
+        asyncio.create_task(cleanup_sessions())
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
     asyncio.run(main())

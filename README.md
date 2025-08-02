@@ -76,18 +76,58 @@ python src/client.py src/server.py "Your task" --model llama3.2:latest
 
 ## Available Tools
 
-The MCP server provides 10 browser automation tools:
+The MCP server provides browser automation tools:
 
+### Basic Browser Control
 - `launch_browser(url)` - Launch browser and navigate to URL
-- `click_element(session_id, x, y)` - Click at coordinates
+- `close_browser(session_id)` - Close browser session
+- `take_screenshot(session_id)` - Capture screenshot
+- `get_page_content(session_id)` - Extract page text content
+- `get_dom_structure(session_id, max_depth)` - Get DOM tree
+
+### Page Interaction
+- `click_element(session_id, x, y)` - Click at coordinates (with JavaScript event triggering)
 - `click_selector(session_id, selector)` - Click element by CSS selector
 - `type_text(session_id, text)` - Type text at current position
 - `scroll_page(session_id, direction)` - Scroll page up/down
-- `get_page_content(session_id)` - Extract page text content
-- `get_dom_structure(session_id, max_depth)` - Get DOM tree
 - `extract_data(session_id, pattern)` - Extract structured data
-- `take_screenshot(session_id)` - Capture screenshot
-- `close_browser(session_id)` - Close browser session
+
+### Debugging & Visual Aids
+- `clear_highlights(session_id)` - Remove all visual highlight boxes
+- `show_selectors(session_id, element_types="interactive")` - Show selector debug boxes
+
+#### Selector Debugging Tool
+
+The `show_selectors` tool displays **numbered colored dots** with click-to-reveal CSS selectors for automation debugging:
+
+**Smart Layout:**
+- **Small colored dots** (numbered 1, 2, 3...) positioned on interactive elements
+- **Click dots** to see detailed selector information in tooltip
+- **Auto-hide tooltips** after 3 seconds to keep screen clean
+- **Legend** in top-right corner showing color coding and element count
+
+**Element Types:**
+- `"interactive"` (default) - Buttons, inputs, links, clickable elements
+- `"buttons"` - Button elements and button-like inputs
+- `"inputs"` - Form inputs, textareas, selects  
+- `"links"` - Anchor tags with href attributes
+- `"all"` - All interactive elements
+
+**Color Coding:**
+- 🔵 **Blue dots** - Buttons and button-like elements
+- 🟢 **Green dots** - Form inputs (input, textarea, select)
+- 🟠 **Orange dots** - Links (anchor tags)
+- 🟣 **Purple dots** - Other interactive elements
+
+**Usage:**
+```
+show_selectors(session_id)                    # Show all interactive elements as dots
+show_selectors(session_id, "buttons")         # Show only button dots
+show_selectors(session_id, "inputs")          # Show only form input dots
+clear_highlights(session_id)                  # Remove all dots and tooltips
+```
+
+**Benefits:** No visual clutter, precise targeting, click-to-reveal details, clean interface.
 
 ## Examples
 
