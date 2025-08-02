@@ -5,7 +5,7 @@ A powerful browser automation system that enables AI agents to control web brows
 ## Features
 
 - **MCP Integration**: Full support for Model Context Protocol for structured AI-browser communication
-- **Ollama Model Support**: Optimized for local AI models running through Ollama 
+- **Ollama Model Support**: Optimized for local AI models running through Ollama
 - **Browser Control**: Complete browser automation with Playwright (Chrome, Firefox, Safari)
 - **AI-Driven Automation**: Natural language browser control via local LLMs
 - **Screenshot Capabilities**: Visual feedback and debugging support
@@ -29,7 +29,9 @@ git clone https://github.com/Cam10001110101/mcp-server-browser-use-ollama
 cd mcp-server-browser-use-ollama
 
 # Install with uv (recommended)
+uv venv -- create virtual env
 uv pip install -e .
+pip install playwright
 playwright install
 
 # Start Ollama and pull a model
@@ -42,7 +44,9 @@ ollama pull qwen3  # In another terminal
 The system can be used in two modes:
 
 #### Option 1: Direct MCP Integration (with Claude Desktop)
+
 Configure in `claude_desktop_config.json`:
+
 ```json
 {
   "mcpServers": {
@@ -55,6 +59,7 @@ Configure in `claude_desktop_config.json`:
 ```
 
 #### Option 2: Ollama-Driven Automation
+
 ```bash
 # Interactive automation with conversation history
 python src/client.py src/server.py
@@ -87,21 +92,25 @@ The MCP server provides 10 browser automation tools:
 ## Examples
 
 ### Basic Web Search
+
 ```bash
 python src/client.py src/server.py "Search for 'Ollama models' on Google and summarize the top 3 results"
 ```
 
 ### E-commerce Analysis
+
 ```bash
 python src/client.py src/server.py "Compare wireless headphones on Amazon - create a table with prices, ratings, and features"
 ```
 
 ### Research Workflow
+
 ```bash
 python src/client.py src/server.py "Research transformer architecture improvements in 2024, visit 5 sources, and compile a summary"
 ```
 
 ### File-based Complex Tasks
+
 ```bash
 # Create a task file
 echo "Navigate to GitHub, search for MCP repositories, and analyze the top 5 results" > my_task.txt
@@ -158,13 +167,16 @@ User → Client → MCP Protocol → Server → Playwright Browser
 ## Key Features
 
 ### Interactive Feedback Loop
+
 The client maintains a continuous dialogue with Ollama for dynamic automation:
+
 - Ollama receives results after each action
 - Can adjust strategy based on browser state
 - Maintains full conversation history for context
 - Supports both command-line and file-based task input
 
 ### Advanced Capabilities
+
 - **Conversation History**: 32k token context window for complex multi-step tasks
 - **Action Parsing**: JSON and heuristic parsing of LLM responses
 - **File Input**: Support for complex task descriptions from files
@@ -172,12 +184,14 @@ The client maintains a continuous dialogue with Ollama for dynamic automation:
 - **Debug Mode**: Comprehensive logging for troubleshooting
 
 ### Flexible Model Support
+
 - Works with any Ollama-compatible model
 - Optimized for coding models (qwen3, qwen2.5-coder:7b)
 - Configurable context windows and parameters
 - Temperature=0 for deterministic outputs
 
 ### Robust Error Handling
+
 - Automatic browser session cleanup
 - Graceful recovery from parsing errors
 - Comprehensive logging for debugging

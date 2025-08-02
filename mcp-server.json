@@ -11,8 +11,8 @@
                     "description": "URL to navigate to when launching browser",
                     "is_required": false,
                     "format": "string",
-                    "value": "https://www.google.com",
-                    "default": "https://www.google.com",
+                    "value": "http://localhost:8000/",
+                    "default": "http://localhost:8000",
                     "type": "positional",
                     "value_hint": "https://example.com"
                 }
@@ -49,13 +49,23 @@
         }
     ],
     "license": "MIT",
-    "keywords": ["mcp", "browser-automation", "ollama", "playwright", "ai"],
+    "keywords": [
+        "mcp",
+        "browser-automation",
+        "ollama",
+        "playwright",
+        "ai"
+    ],
     "authors": [
         {
             "name": "Cam10001110101"
         }
     ],
-    "supported_platforms": ["windows", "macos", "linux"],
+    "supported_platforms": [
+        "windows",
+        "macos",
+        "linux"
+    ],
     "installation_commands": {
         "pip": "pip install mcp-server-browser-use-ollama && playwright install",
         "uv": "uv pip install mcp-server-browser-use-ollama && playwright install"
@@ -64,7 +74,10 @@
         "mcpServers": {
             "browser-use-ollama": {
                 "command": "python",
-                "args": ["-m", "src.server"],
+                "args": [
+                    "-m",
+                    "src.server"
+                ],
                 "env": {
                     "OLLAMA_HOST": "http://localhost:11434",
                     "OLLAMA_MODEL": "qwen3"
